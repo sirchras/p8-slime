@@ -3,84 +3,154 @@ version 41
 __lua__
 #include vector.p8
 
+entities = {}
+
 function _init()
-	--
-	player=slime:new{
-		--x:4,y:12
-		pos=vector(32,104)
+	player = newentity{
+		--could pass some of these fns in as variables instead
+		-- and have them called inside newentity
+		sprite = newsprite(1),
+		control = playercontrolcmp(),
+		physics = playerphysicscmp(),
 	}
+	--todo: move these somewhere more sensible - prob components?
+	--max speed, acceleration props
+	player.acc = 0.2
+	player.maxspeed = 2
+	--friction, gravity forces
+	player.f = 0.1
+	player.g = 0.2
+	--jump force
+	player.jumpf = 3.6
 end
 
 function _update()
-	--
-	player:update()
+	controlsys.update()
+	physicsys.update()
 end
 
 function _draw()
 	--
 	pal()
 	cls()
-	map(0,3,0,8,16,15)
-	for i=1,3 do
-		spr(81,(i-1)*8,0)
-	end
-	print("hello world",0,120)
-	player:draw()
+	-- map as an entity?
+	map(0,3,0,8,16,15) --todo: should change this
+	rendersys.update()
 end
 
 function cel(v)
 	return {x=flr(v.x/8),y=flr(v.y/8)}
 end
 
---
---base class
---
-class={}
-function class:new(o)
-	local o=o or {}
-	setmetatable(o,self)
-	self.__index=self
-	return o
+--entities:
+entity = {}
+entity.__index = entity
+function newentity(arg)
+	local ent = {
+		pos = vector(arg.x or 0, arg.y or 0),
+		v = vector(arg.dx or 0, arg.dy or 0),
+		w = arg.w or 8,
+		h = arg.h or arg.w or 8,
+		-- sprite = arg.sprite,
+		-- control = arg.control,
+		-- physics = arg.physics,
+	}
+	setmetatable(ent, entity)
+	ent.sprite = arg.sprite
+	ent.control = arg.control
+	ent.physics = arg.physics
+	--could add to different entity tables for optimization
+	return add(entities, ent)
 end
 
---
---game object
---
-gmobj=class:new{
-	pos=vector(0,0)
-}
+-- components: sprite, input/control
+function newsprite(i)
+	local sp = {
+		-- might be worth transitioning to using sspr (and sprite coords)
+		i = i or 0,
+		flip = false,
+	}
+	return sp
+end
 
---
---slime - player
---
-slime=gmobj:new{
-	sprite=1,
-	isgrounded=false,
-	flp=false,
-	anim={
-		idle={1,2,3,4},
-	},
-}
-function slime:update()
-	--get input
-	local v=vector()
-	if (btn(➡️)) v.x+=1
-	if (btn(⬅️)) v.x-=1
-	v:norm()
-	self:move(v)
-	--
+--passing the entity in as self to the control.update fn feels
+-- a little jank right now, will see if there's a better way idk...
+function playercontrolcmp()
+	local control = {}
+	control.update = function(self)
+		local v, acc = self.v, self.acc
+		if btn(⬅️) then
+			v.x -= acc
+			self.sprite.flip = true
+		end
+		if btn(➡️) then
+			v.x += acc
+			self.sprite.flip = false
+		end
+		--limit horizontal velocity to maxspeed
+		if abs(v.x) > self.maxspeed then
+			v.x = sgn(v.x) * self.maxspeed
+		end
+		--jump
+		if btnp(⬆️) then
+			--apply up force to v.y
+			v.y = -self.jumpf
+		end
+		self.v = v
+	end
+	return control
 end
-function slime:draw()
-	local s,pos=self.sprite,self.pos
-	palt(0,false)
-	palt(1,true)
-	spr(s,pos.x,pos.y)
+
+--todo: map collisions (ground/wall),
+function playerphysicscmp()
+	local physics = {}
+	physics.update = function(self)
+		local pos, v = self.pos, self.v
+		--gravity
+		--rm later todo: replace w/ ground collisions
+		if pos.y > 120 - v.y then
+			v.y=-self.g
+		end
+		v.y += self.g
+
+		--friction (todo: only apply on ground?)
+		v.x *= (1 - self.f)
+		if abs(v.x) < 0.015 then v.x = 0 end
+
+		self.v = v
+		self.pos = pos + v
+	end
+	return physics
 end
-function slime:move(v)
-	local npos=self.pos+v
-	local cel=cel(npos)
-	local tl=mget(cel.x,cel.y)
-	if fget(tl,0)
+
+--systems: contol, physics
+controlsys = {}
+controlsys.update = function()
+	for ent in all(entities) do
+		if not ent.control then goto continue end
+		ent.control.update(ent)
+		::continue::
+	end
+end
+
+physicsys = {}
+physicsys.update = function(self)
+	for ent in all(entities) do
+		if not ent.physics then goto continue end
+		ent.physics.update(ent)
+		::continue::
+	end
+end
+
+rendersys = {}
+rendersys.update = function()
+	for ent in all(entities) do
+		if not ent.sprite then goto continue end
+		palt(0, false)
+		palt(1, true)
+		spr(ent.sprite.i, ent.pos.x, ent.pos.y, 1, 1, ent.sprite.flip)
+		::continue::
+	end
 end
 
 __gfx__
