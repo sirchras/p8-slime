@@ -7,8 +7,7 @@ entities = {}
 
 function _init()
 	player = newentity{
-		--could pass some of these fns in as variables instead
-		-- and have them called inside newentity
+		x = 60, y = 60,
 		sprite = newsprite(1),
 		control = playercontrolcmp(),
 		physics = playerphysicscmp(),
@@ -18,10 +17,11 @@ function _init()
 	player.acc = 0.2
 	player.maxspeed = 2
 	--friction, gravity forces
-	player.f = 0.1
+	player.f = 0.1 --%loss of momentum
 	player.g = 0.2
 	--jump force
 	player.jumpf = 3.6
+	player.grounded = false
 end
 
 function _update()
@@ -34,12 +34,23 @@ function _draw()
 	pal()
 	cls()
 	-- map as an entity?
-	map(0,3,0,8,16,15) --todo: should change this
+	map() --todo: should change this
 	rendersys.update()
 end
 
+function issolid(cel)
+	return fget(mget(cel.x, cel.y), 0)
+end
+
+--these fns might be superfluous
+-- get map cell of world coords
 function cel(v)
-	return {x=flr(v.x/8),y=flr(v.y/8)}
+	return vector(flr(v.x / 8), flr(v.y / 8))
+end
+
+-- get world pos of map cell coords
+function wld(v)
+	return v * 8
 end
 
 --entities:
@@ -92,9 +103,10 @@ function playercontrolcmp()
 			v.x = sgn(v.x) * self.maxspeed
 		end
 		--jump
-		if btnp(⬆️) then
+		if self.grounded and (btnp(⬆️) or btnp(❎) or btnp(🅾️)) then
 			--apply up force to v.y
 			v.y = -self.jumpf
+			self.grounded = false
 		end
 		self.v = v
 	end
@@ -106,19 +118,44 @@ function playerphysicscmp()
 	local physics = {}
 	physics.update = function(self)
 		local pos, v = self.pos, self.v
-		--gravity
-		--rm later todo: replace w/ ground collisions
-		if pos.y > 120 - v.y then
-			v.y=-self.g
-		end
-		v.y += self.g
-
-		--friction (todo: only apply on ground?)
+		--friction (todo: different friction in air?)
 		v.x *= (1 - self.f)
 		if abs(v.x) < 0.015 then v.x = 0 end
+		--acc by gravity
+		v.y += self.g
+		--update pos
+		pos += v
 
-		self.v = v
-		self.pos = pos + v
+		--map collisions
+		--down:
+		self.grounded = false --assume falling until confirmed otherwise
+		if v.y > 0 then
+			local down = pos + vector(self.w / 2, self.h)
+			-- local t = down + v
+			if issolid(cel(down)) then
+				pos.y = flr(pos.y / 8) * 8
+				v.y = 0
+				self.grounded = true
+			end
+		end
+		--left/right
+		local offset = v.x < 0 and 0 or self.w
+		local side = pos + vector(offset, 0)
+		if issolid(cel(side)) then
+			pos.x = (flr(pos.x / 8) * 8) + (self.w - offset)
+			-- v.x = 0
+		end
+		--up
+		if v.y < 0 then
+			local up = pos + vector(self.w / 2, 0)
+			if issolid(cel(up)) then
+				pos.y = flr(pos.y / 8)* 8 + self.h
+				v.y = 0
+			end
+		end
+
+		--update ent props
+		self.pos, self.v = pos, v
 	end
 	return physics
 end
